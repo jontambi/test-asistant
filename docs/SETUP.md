@@ -10,13 +10,12 @@ This guide will walk you through setting up the Kids Growing Pediatric Clinic As
 4. [Redis Setup](#redis-setup)
 5. [Google Cloud Setup](#google-cloud-setup)
 6. [Anthropic Claude Setup](#anthropic-claude-setup)
-7. [Twilio Setup](#twilio-setup)
-8. [WhatsApp Business Setup](#whatsapp-business-setup)
-9. [SMTP Email Setup](#smtp-email-setup)
-10. [Import Workflows](#import-workflows)
-11. [Configure Credentials](#configure-credentials)
-12. [Testing](#testing)
-13. [Going Live](#going-live)
+7. [Telegram Bot Setup](#telegram-bot-setup)
+8. [SMTP Email Setup](#smtp-email-setup)
+9. [Import Workflows](#import-workflows)
+10. [Configure Credentials](#configure-credentials)
+11. [Testing](#testing)
+12. [Going Live](#going-live)
 
 ---
 
@@ -33,9 +32,8 @@ This guide will walk you through setting up the Kids Growing Pediatric Clinic As
 
 - Anthropic account (Claude AI)
 - Google Cloud Platform account
-- Twilio account (for SMS)
+- Telegram Bot (via @BotFather)
 - SMTP email provider (Gmail, SendGrid, etc.)
-- WhatsApp Business account (optional)
 
 ### System Requirements
 
@@ -335,66 +333,82 @@ curl https://api.anthropic.com/v1/messages \
 
 ---
 
-## Twilio Setup
+## Telegram Bot Setup
 
-### 1. Create Account
+### 1. Create Telegram Bot
 
-1. Go to [Twilio](https://www.twilio.com)
-2. Sign up for an account
-3. Verify your email and phone
+1. Open Telegram app
+2. Search for "@BotFather" (official Telegram bot)
+3. Start a conversation and send: `/newbot`
+4. Follow the prompts:
+   - Choose a name for your bot (e.g., "Kids Growing Clinic Assistant")
+   - Choose a username (must end with 'bot', e.g., "KidsGrowingClinicBot")
 
-### 2. Get Credentials
+### 2. Get Bot Token
 
-1. Go to Console Dashboard
-2. Copy these values:
-   - Account SID
-   - Auth Token
+1. After creation, BotFather will provide your bot token
+2. Format: `123456789:ABCdefGHIjklMNOpqrsTUVwxyz`
+3. **Keep this token secret!** Anyone with this token can control your bot
 
-### 3. Get Phone Number
+### 3. Configure Bot (Optional)
 
-1. Go to "Phone Numbers" → "Buy a number"
-2. Select country (Mexico for Kids Growing)
-3. Check "SMS" capability
-4. Purchase number
-5. Copy the phone number (format: +1234567890)
+Send these commands to @BotFather to customize your bot:
 
-### 4. Configure SMS
+```
+/setdescription - Set bot description
+/setabouttext - Set about text
+/setuserpic - Set bot profile picture
+/setcommands - Set bot commands menu
+```
 
-1. Click on your phone number
-2. Under "Messaging Configuration":
-   - Set webhook for incoming SMS (if you want two-way SMS)
-   - URL: `https://your-n8n-instance.com/webhook/lucia-chat`
-   - Method: POST
+Example commands setup:
+```
+start - Start conversation with Lucía
+help - Get help information
+appointment - Schedule an appointment
+pricing - View service pricing
+```
 
-### 5. Add Credits
+### 4. Get Chat ID for Notifications
 
-1. Go to "Billing"
-2. Add funds (recommended: $20-50 to start)
-3. Enable auto-recharge (optional)
+To send notifications to a specific user or group:
 
----
+**Option A: For personal notifications**
+1. Start a conversation with your bot
+2. Send any message
+3. Visit: `https://api.telegram.org/bot<YOUR_BOT_TOKEN>/getUpdates`
+4. Look for `"chat":{"id":123456789}` in the response
+5. Copy the chat ID
 
-## WhatsApp Business Setup
+**Option B: For group notifications**
+1. Add your bot to a Telegram group
+2. Send a message in the group
+3. Visit the same getUpdates URL
+4. The group chat ID will be negative (e.g., -123456789)
 
-### Option 1: Twilio (Easier)
+### 5. Configure Webhook (Optional - for two-way chat)
 
-1. In Twilio Console, go to "Messaging" → "Try WhatsApp"
-2. Follow setup wizard
-3. Get WhatsApp-enabled phone number
-4. Use same credentials as SMS
+If you want users to interact with the bot directly:
 
-### Option 2: Meta Business (More features)
+```bash
+curl -X POST "https://api.telegram.org/bot<YOUR_BOT_TOKEN>/setWebhook" \
+  -H "Content-Type: application/json" \
+  -d '{
+    "url": "https://your-n8n-instance.com/webhook/lucia-chat",
+    "allowed_updates": ["message"]
+  }'
+```
 
-1. Go to [Facebook Business](https://business.facebook.com)
-2. Create Business Manager account
-3. Add WhatsApp Business Account
-4. Complete verification process
-5. Get credentials:
-   - Phone Number ID
-   - Access Token
-   - Business Account ID
+### 6. Environment Variables
 
-**Note**: Meta WhatsApp requires business verification (can take 1-2 weeks)
+Add to your `.env` file:
+
+```env
+TELEGRAM_BOT_TOKEN=123456789:ABCdefGHIjklMNOpqrsTUVwxyz
+TELEGRAM_CHAT_ID=your_chat_id_here
+```
+
+**Note**: Telegram Bot API is free and has no message limits for regular bots!
 
 ---
 
@@ -542,15 +556,6 @@ Fill in all values from previous steps.
 3. Select "Service Account"
 4. Upload same JSON key file
 5. Save
-
-#### Twilio
-
-1. "Create New" → "Twilio API"
-2. Name: "Twilio Account"
-3. Fill in:
-   - Account SID
-   - Auth Token
-4. Save
 
 #### SMTP Email
 
