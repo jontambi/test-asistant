@@ -1,0 +1,437 @@
+{
+  "name": "Lucía - Patient Data Management",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lucia-patient-data",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-patient-data",
+      "name": "Webhook - Patient Data",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "lucia-patient-data-webhook"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse patient data request\nconst action = $json.body.action; // 'create', 'update', 'get', 'search'\nconst patientData = $json.body.patientData || {};\n\nreturn {\n  json: {\n    action: action,\n    patientId: patientData.patientId,\n    patientName: patientData.patientName,\n    patientAge: patientData.patientAge,\n    dateOfBirth: patientData.dateOfBirth,\n    gender: patientData.gender,\n    parentName: patientData.parentName,\n    parentEmail: patientData.parentEmail,\n    parentPhone: patientData.parentPhone,\n    address: patientData.address,\n    insuranceProvider: patientData.insuranceProvider,\n    insurancePolicyNumber: patientData.insurancePolicyNumber,\n    allergies: patientData.allergies || [],\n    medicalConditions: patientData.medicalConditions || [],\n    medications: patientData.medications || [],\n    emergencyContactName: patientData.emergencyContactName,\n    emergencyContactPhone: patientData.emergencyContactPhone,\n    sessionId: $json.body.sessionId,\n    userId: $json.body.userId\n  }\n};"
+      },
+      "id": "parse-patient-data",
+      "name": "Parse Patient Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.action}}",
+              "operation": "equals",
+              "value2": "create"
+            }
+          ]
+        }
+      },
+      "id": "route-action",
+      "name": "Route Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "operation": "equals",
+              "value1": "={{$json.action}}",
+              "value2": "create"
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.action}}",
+              "value2": "update"
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.action}}",
+              "value2": "get"
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.action}}",
+              "value2": "search"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "patients",
+        "columns": {
+          "mappings": [
+            {
+              "column": "patient_name",
+              "value": "={{$json.patientName}}"
+            },
+            {
+              "column": "date_of_birth",
+              "value": "={{$json.dateOfBirth}}"
+            },
+            {
+              "column": "age",
+              "value": "={{$json.patientAge}}"
+            },
+            {
+              "column": "gender",
+              "value": "={{$json.gender}}"
+            },
+            {
+              "column": "parent_name",
+              "value": "={{$json.parentName}}"
+            },
+            {
+              "column": "parent_email",
+              "value": "={{$json.parentEmail}}"
+            },
+            {
+              "column": "parent_phone",
+              "value": "={{$json.parentPhone}}"
+            },
+            {
+              "column": "address",
+              "value": "={{$json.address}}"
+            },
+            {
+              "column": "insurance_provider",
+              "value": "={{$json.insuranceProvider}}"
+            },
+            {
+              "column": "insurance_policy_number",
+              "value": "={{$json.insurancePolicyNumber}}"
+            },
+            {
+              "column": "allergies",
+              "value": "={{JSON.stringify($json.allergies)}}"
+            },
+            {
+              "column": "medical_conditions",
+              "value": "={{JSON.stringify($json.medicalConditions)}}"
+            },
+            {
+              "column": "medications",
+              "value": "={{JSON.stringify($json.medications)}}"
+            },
+            {
+              "column": "emergency_contact_name",
+              "value": "={{$json.emergencyContactName}}"
+            },
+            {
+              "column": "emergency_contact_phone",
+              "value": "={{$json.emergencyContactPhone}}"
+            },
+            {
+              "column": "created_at",
+              "value": "={{new Date().toISOString()}}"
+            },
+            {
+              "column": "updated_at",
+              "value": "={{new Date().toISOString()}}"
+            }
+          ]
+        },
+        "options": {
+          "queryReplacement": "patient_id,patient_name,date_of_birth,age,gender,parent_name,parent_email,parent_phone,address,insurance_provider,insurance_policy_number,allergies,medical_conditions,medications,emergency_contact_name,emergency_contact_phone,created_at,updated_at"
+        }
+      },
+      "id": "create-patient-record",
+      "name": "Database - Create Patient",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [850, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE patients SET \n  patient_name = '{{$json.patientName}}',\n  age = {{$json.patientAge}},\n  parent_name = '{{$json.parentName}}',\n  parent_email = '{{$json.parentEmail}}',\n  parent_phone = '{{$json.parentPhone}}',\n  address = '{{$json.address}}',\n  insurance_provider = '{{$json.insuranceProvider}}',\n  insurance_policy_number = '{{$json.insurancePolicyNumber}}',\n  allergies = '{{JSON.stringify($json.allergies)}}',\n  medical_conditions = '{{JSON.stringify($json.medicalConditions)}}',\n  medications = '{{JSON.stringify($json.medications)}}',\n  emergency_contact_name = '{{$json.emergencyContactName}}',\n  emergency_contact_phone = '{{$json.emergencyContactPhone}}',\n  updated_at = NOW()\nWHERE patient_id = {{$json.patientId}}",
+        "options": {}
+      },
+      "id": "update-patient-record",
+      "name": "Database - Update Patient",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [850, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM patients WHERE patient_id = {{$json.patientId}}",
+        "options": {}
+      },
+      "id": "get-patient-record",
+      "name": "Database - Get Patient",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [850, 400],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT * FROM patients \nWHERE \n  LOWER(patient_name) LIKE LOWER('%{{$json.patientName}}%') \n  OR LOWER(parent_name) LIKE LOWER('%{{$json.parentName}}%')\n  OR parent_email = '{{$json.parentEmail}}'\n  OR parent_phone = '{{$json.parentPhone}}'\nLIMIT 20",
+        "options": {}
+      },
+      "id": "search-patient-records",
+      "name": "Database - Search Patients",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [850, 500],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format patient data for response (removing sensitive info if needed)\nconst patientData = $json;\n\n// Check if this is a GDPR/privacy compliant request\n// For chat interface, limit what info is shared\n\nconst safeData = {\n  patientId: patientData.patient_id,\n  patientName: patientData.patient_name,\n  age: patientData.age,\n  parentName: patientData.parent_name,\n  // Mask sensitive data\n  parentEmail: patientData.parent_email ? patientData.parent_email.replace(/(.{3}).*(@.*)/, '$1***$2') : '',\n  parentPhone: patientData.parent_phone ? patientData.parent_phone.replace(/(\\d{3})\\d{4}(\\d{3})/, '$1****$2') : '',\n  hasInsurance: !!patientData.insurance_provider,\n  registeredDate: patientData.created_at\n};\n\nreturn {\n  json: {\n    success: true,\n    action: 'patient_retrieved',\n    patient: safeData,\n    fullData: patientData // Only use in secure contexts\n  }\n};"
+      },
+      "id": "format-patient-response",
+      "name": "Format Patient Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 400]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Log patient data activity for compliance (GDPR, HIPAA)\nconst action = $input.first().json.action;\nconst patientId = $json.patient_id || $input.first().json.patientId;\nconst userId = $input.first().json.userId;\n\nreturn {\n  json: {\n    activity_type: action,\n    patient_id: patientId,\n    user_id: userId,\n    timestamp: new Date().toISOString(),\n    ip_address: $input.first().json.body?.headers?.['x-forwarded-for'] || 'unknown',\n    user_agent: $input.first().json.body?.headers?.['user-agent'] || 'unknown'\n  }\n};"
+      },
+      "id": "log-data-access",
+      "name": "Log Data Access (Compliance)",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "patient_activity_log",
+        "columns": {
+          "mappings": [
+            {
+              "column": "activity_type",
+              "value": "={{$json.activity_type}}"
+            },
+            {
+              "column": "patient_id",
+              "value": "={{$json.patient_id}}"
+            },
+            {
+              "column": "user_id",
+              "value": "={{$json.user_id}}"
+            },
+            {
+              "column": "timestamp",
+              "value": "={{$json.timestamp}}"
+            },
+            {
+              "column": "ip_address",
+              "value": "={{$json.ip_address}}"
+            },
+            {
+              "column": "user_agent",
+              "value": "={{$json.user_agent}}"
+            }
+          ]
+        }
+      },
+      "id": "save-activity-log",
+      "name": "Save Activity Log",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1250, 200],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL Account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1450, 300]
+    }
+  ],
+  "connections": {
+    "Webhook - Patient Data": {
+      "main": [
+        [
+          {
+            "node": "Parse Patient Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Patient Data": {
+      "main": [
+        [
+          {
+            "node": "Route Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Action": {
+      "main": [
+        [
+          {
+            "node": "Database - Create Patient",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Database - Update Patient",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Database - Get Patient",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Database - Search Patients",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Database - Create Patient": {
+      "main": [
+        [
+          {
+            "node": "Log Data Access (Compliance)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Database - Get Patient": {
+      "main": [
+        [
+          {
+            "node": "Format Patient Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Patient Response": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Log Data Access (Compliance)": {
+      "main": [
+        [
+          {
+            "node": "Save Activity Log",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Activity Log": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Database - Update Patient": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Database - Search Patients": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-11-13T00:00:00.000Z",
+  "versionId": "1"
+}

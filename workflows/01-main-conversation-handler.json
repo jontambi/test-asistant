@@ -1,0 +1,381 @@
+{
+  "name": "Lucía - Main Conversation Handler",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lucia-chat",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-receive",
+      "name": "Webhook - Receive Message",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "lucia-chat-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.body.message}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "validate-input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract conversation data from webhook\nconst sessionId = $input.item.json.body.sessionId || `session-${Date.now()}`;\nconst userMessage = $input.item.json.body.message;\nconst userId = $input.item.json.body.userId || 'anonymous';\nconst channel = $input.item.json.body.channel || 'web'; // web, whatsapp, sms, voice\n\n// Create structured input for memory retrieval\nreturn {\n  json: {\n    sessionId: sessionId,\n    userId: userId,\n    userMessage: userMessage,\n    channel: channel,\n    timestamp: new Date().toISOString()\n  }\n};"
+      },
+      "id": "extract-conversation-data",
+      "name": "Extract Conversation Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 250]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "={{$json.sessionId}}_memory",
+        "options": {}
+      },
+      "id": "get-conversation-memory",
+      "name": "Get Conversation Memory",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [850, 250],
+      "credentials": {
+        "redis": {
+          "id": "redis-credentials",
+          "name": "Redis Account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "functionCode": "// Build conversation history from memory\nconst currentMessage = $input.first().json.userMessage;\nconst sessionId = $input.first().json.sessionId;\nconst userId = $input.first().json.userId;\nconst channel = $input.first().json.channel;\n\n// Get memory from previous node (if exists)\nlet conversationHistory = [];\ntry {\n  const memoryData = $input.first().json.value;\n  if (memoryData) {\n    conversationHistory = JSON.parse(memoryData);\n  }\n} catch (error) {\n  // No previous memory, start fresh\n  conversationHistory = [];\n}\n\n// Add current message to history\nconversationHistory.push({\n  role: 'user',\n  content: currentMessage,\n  timestamp: new Date().toISOString()\n});\n\n// Keep only last 10 messages to manage token usage\nif (conversationHistory.length > 10) {\n  conversationHistory = conversationHistory.slice(-10);\n}\n\nreturn {\n  json: {\n    sessionId: sessionId,\n    userId: userId,\n    channel: channel,\n    currentMessage: currentMessage,\n    conversationHistory: conversationHistory\n  }\n};"
+      },
+      "id": "build-conversation-history",
+      "name": "Build Conversation History",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 250]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Check for emergency keywords\nconst message = $json.currentMessage.toLowerCase();\nconst emergencyKeywords = [\n  'emergencia', 'urgente', 'no respira', 'convulsión', 'convulsion',\n  'accidente', 'sangrado', 'inconsciente', 'desmayo', 'asfixia',\n  'ahogo', 'muy grave', 'crisis', 'ataque'\n];\n\nconst isEmergency = emergencyKeywords.some(keyword => message.includes(keyword));\n\nreturn {\n  json: {\n    ...($json),\n    isEmergency: isEmergency,\n    requiresHumanEscalation: false // Will be determined by AI\n  }\n};"
+      },
+      "id": "detect-emergency",
+      "name": "Detect Emergency",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1250, 250]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$json.isEmergency}}",
+              "value2": true
+            }
+          ]
+        }
+      },
+      "id": "check-emergency",
+      "name": "Is Emergency?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1450, 250]
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "emergency-response",
+              "name": "response",
+              "value": "🚨 **EMERGENCIA MÉDICA DETECTADA** 🚨\\n\\nEsta situación requiere atención médica inmediata.\\n\\n**Por favor:**\\n1. Llama al 911 inmediatamente\\n2. O acude a la sala de emergencias más cercana\\n\\n**Nuestra dirección de urgencias:**\\nKids Growing Clinic\\nAv. Principal #123, Ciudad\\n\\nSi no es una emergencia y deseas agendar una cita, házmelo saber.",
+              "type": "string"
+            },
+            {
+              "id": "response-type",
+              "name": "responseType",
+              "value": "emergency",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "emergency-response",
+      "name": "Emergency Response",
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3,
+      "position": [1650, 150]
+    },
+    {
+      "parameters": {
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "anthropicApi",
+        "resource": "message",
+        "model": "claude-3-haiku-20240307",
+        "systemMessage": "Rol y Personalidad:\nEres Lucía, asistente virtual de \"Kids Growing\" - Clínica Pediátrica. Tu rol es ayudar a padres y cuidadores con consultas sobre servicios pediátricos, agendar citas y proporcionar información general de la clínica.\n\nTono y Estilo:\n- Amable, empático y profesional\n- Lenguaje claro y sencillo (evita términos médicos complejos)\n- Paciente y comprensivo con padres preocupados\n- Cálido pero manteniendo profesionalismo médico\n- Responde siempre en español\n\nCapacidades:\n1. Agendar, modificar o cancelar citas médicas\n2. Proporcionar información sobre tarifas y servicios\n3. Responder preguntas frecuentes sobre la clínica\n4. Recopilar datos básicos de pacientes\n5. Información sobre horarios y ubicación\n\nLimitaciones - Cuándo derivar:\n- NUNCA des diagnósticos médicos\n- NUNCA recomiendes medicamentos\n- Preguntas médicas específicas sobre diagnóstico o tratamiento → indica que un doctor debe evaluar\n- Emergencias médicas → derivar a urgencias inmediatamente (ya detectadas por el sistema)\n- Situaciones complejas que requieran criterio médico → ofrece agendar llamada con doctor\n- Quejas o situaciones conflictivas → deriva a atención al cliente\n\nInformación de la Clínica:\n- Nombre: Kids Growing - Clínica Pediátrica\n- Horario: Lunes a Viernes 8:00 AM - 6:00 PM, Sábados 9:00 AM - 2:00 PM\n- Ubicación: Av. Principal #123, Ciudad\n- Teléfono: +1 (555) 123-4567\n- Email: contacto@kidsgrowing.com\n\nServicios Principales:\n- Consulta pediátrica general\n- Control de niño sano\n- Vacunación\n- Emergencias pediátricas\n- Consultas especializadas\n\nFlujo para Agendar Cita:\n1. Saludo cordial\n2. Recopilar: Nombre del niño/a, edad, motivo de consulta\n3. Indicar que verificarás disponibilidad\n4. Solicitar: Nombre del padre/madre, teléfono, email\n5. Confirmar todos los datos antes de agendar\n\nIMPORTANTE:\n- Cuando el usuario quiera agendar una cita, consultar precios, o necesites acceder a información específica, responde indicando que verificarás la información\n- Usa las herramientas disponibles para consultar calendario y precios\n- Siempre confirma los datos importantes antes de finalizar acciones\n- Sé especialmente cuidadoso con información sensible",
+        "messages": {
+          "messageValues": [
+            {
+              "message": "={{$json.currentMessage}}"
+            }
+          ]
+        },
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 1024
+        }
+      },
+      "id": "claude-ai",
+      "name": "Claude AI - Lucía",
+      "type": "n8n-nodes-base.anthropic",
+      "typeVersion": 1,
+      "position": [1650, 350],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Analyze AI response to determine if special actions needed\nconst aiResponse = $json.response?.content?.[0]?.text || $json.response?.text || '';\nconst conversationHistory = $input.first().json.conversationHistory;\n\n// Check if response mentions appointments\nconst mentionsAppointment = /\\b(cita|agendar|agenda|programar|reservar|appointment)\\b/i.test(aiResponse);\n\n// Check if response mentions pricing\nconst mentionsPricing = /\\b(precio|costo|tarifa|cuanto cuesta|precio|pago|payment)\\b/i.test(aiResponse);\n\n// Check if collecting patient data\nconst collectingData = /\\b(nombre|edad|teléfono|telefono|email|correo)\\b/i.test(aiResponse);\n\n// Add AI response to history\nconversationHistory.push({\n  role: 'assistant',\n  content: aiResponse,\n  timestamp: new Date().toISOString()\n});\n\nreturn {\n  json: {\n    sessionId: $input.first().json.sessionId,\n    userId: $input.first().json.userId,\n    channel: $input.first().json.channel,\n    aiResponse: aiResponse,\n    conversationHistory: conversationHistory,\n    needsAppointmentCheck: mentionsAppointment,\n    needsPricingCheck: mentionsPricing,\n    collectingPatientData: collectingData,\n    responseType: 'normal'\n  }\n};"
+      },
+      "id": "analyze-response",
+      "name": "Analyze AI Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1850, 350]
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "={{$json.sessionId}}_memory",
+        "value": "={{JSON.stringify($json.conversationHistory)}}",
+        "options": {
+          "ttl": 3600
+        }
+      },
+      "id": "save-conversation-memory",
+      "name": "Save Conversation Memory",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [2050, 350],
+      "credentials": {
+        "redis": {
+          "id": "redis-credentials",
+          "name": "Redis Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"success\": true,\n  \"sessionId\": $json.sessionId,\n  \"response\": $json.aiResponse || $json.response,\n  \"responseType\": $json.responseType,\n  \"timestamp\": new Date().toISOString()\n} }}"
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [2250, 350]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"success\": false,\n  \"error\": \"Invalid input: message is required\",\n  \"timestamp\": new Date().toISOString()\n} }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response - Invalid Input",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [650, 450]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Merge emergency response with session data\nconst sessionData = $input.first().json;\n\nreturn {\n  json: {\n    sessionId: sessionData.sessionId,\n    userId: sessionData.userId,\n    response: $json.response,\n    responseType: $json.responseType,\n    isEmergency: true\n  }\n};"
+      },
+      "id": "prepare-emergency-response",
+      "name": "Prepare Emergency Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1850, 150]
+    }
+  ],
+  "connections": {
+    "Webhook - Receive Message": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Extract Conversation Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response - Invalid Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Conversation Data": {
+      "main": [
+        [
+          {
+            "node": "Get Conversation Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Conversation Memory": {
+      "main": [
+        [
+          {
+            "node": "Build Conversation History",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Build Conversation History": {
+      "main": [
+        [
+          {
+            "node": "Detect Emergency",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Detect Emergency": {
+      "main": [
+        [
+          {
+            "node": "Is Emergency?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Is Emergency?": {
+      "main": [
+        [
+          {
+            "node": "Emergency Response",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Claude AI - Lucía",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Emergency Response": {
+      "main": [
+        [
+          {
+            "node": "Prepare Emergency Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Claude AI - Lucía": {
+      "main": [
+        [
+          {
+            "node": "Analyze AI Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Analyze AI Response": {
+      "main": [
+        [
+          {
+            "node": "Save Conversation Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Conversation Memory": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Emergency Response": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-11-13T00:00:00.000Z",
+  "versionId": "1"
+}

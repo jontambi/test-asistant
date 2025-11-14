@@ -1,0 +1,441 @@
+{
+  "name": "Lucía - Appointment Management",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lucia-appointments",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-appointment-request",
+      "name": "Webhook - Appointment Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "lucia-appointments-webhook"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse appointment request\nconst action = $json.body.action; // 'check_availability', 'create', 'update', 'cancel'\nconst appointmentData = $json.body.appointmentData || {};\n\nreturn {\n  json: {\n    action: action,\n    patientName: appointmentData.patientName,\n    patientAge: appointmentData.patientAge,\n    parentName: appointmentData.parentName,\n    parentEmail: appointmentData.parentEmail,\n    parentPhone: appointmentData.parentPhone,\n    reasonForVisit: appointmentData.reasonForVisit,\n    preferredDate: appointmentData.preferredDate,\n    preferredTime: appointmentData.preferredTime,\n    appointmentId: appointmentData.appointmentId, // For update/cancel\n    sessionId: $json.body.sessionId,\n    userId: $json.body.userId\n  }\n};"
+      },
+      "id": "parse-appointment-request",
+      "name": "Parse Appointment Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.action}}",
+              "operation": "equals",
+              "value2": "check_availability"
+            }
+          ]
+        }
+      },
+      "id": "route-action",
+      "name": "Route Action",
+      "type": "n8n-nodes-base.switch",
+      "typeVersion": 1,
+      "position": [650, 300],
+      "parameters": {
+        "rules": {
+          "rules": [
+            {
+              "operation": "equals",
+              "value1": "={{$json.action}}",
+              "value2": "check_availability"
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.action}}",
+              "value2": "create"
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.action}}",
+              "value2": "update"
+            },
+            {
+              "operation": "equals",
+              "value1": "={{$json.action}}",
+              "value2": "cancel"
+            }
+          ]
+        }
+      }
+    },
+    {
+      "parameters": {
+        "resource": "calendar",
+        "operation": "getAll",
+        "returnAll": false,
+        "limit": 50,
+        "options": {
+          "timeMax": "={{$json.preferredDate}}T23:59:59Z",
+          "timeMin": "={{$json.preferredDate}}T08:00:00Z"
+        }
+      },
+      "id": "check-calendar-availability",
+      "name": "Google Calendar - Check Availability",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [850, 200],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "google-calendar-credentials",
+          "name": "Google Calendar Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Calculate available time slots\nconst preferredDate = $input.first().json.preferredDate;\nconst existingEvents = $json || [];\n\n// Clinic hours: 8:00 AM - 6:00 PM (Mon-Fri), 9:00 AM - 2:00 PM (Sat)\nconst date = new Date(preferredDate);\nconst dayOfWeek = date.getDay(); // 0 = Sunday, 6 = Saturday\n\n// Check if clinic is closed (Sunday)\nif (dayOfWeek === 0) {\n  return {\n    json: {\n      available: false,\n      reason: 'La clínica está cerrada los domingos',\n      availableSlots: [],\n      nextAvailableDate: null\n    }\n  };\n}\n\n// Define working hours based on day\nlet startHour = 8;\nlet endHour = 18;\nif (dayOfWeek === 6) { // Saturday\n  startHour = 9;\n  endHour = 14;\n}\n\n// Generate 30-minute time slots\nconst allSlots = [];\nfor (let hour = startHour; hour < endHour; hour++) {\n  for (let minute of [0, 30]) {\n    const timeSlot = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;\n    allSlots.push(timeSlot);\n  }\n}\n\n// Filter out occupied slots (simplified - checking event overlaps)\nconst occupiedSlots = [];\nif (Array.isArray(existingEvents)) {\n  existingEvents.forEach(event => {\n    if (event.start && event.start.dateTime) {\n      const eventStart = new Date(event.start.dateTime);\n      const timeSlot = `${String(eventStart.getHours()).padStart(2, '0')}:${String(eventStart.getMinutes()).padStart(2, '0')}`;\n      occupiedSlots.push(timeSlot);\n    }\n  });\n}\n\nconst availableSlots = allSlots.filter(slot => !occupiedSlots.includes(slot));\n\nreturn {\n  json: {\n    available: availableSlots.length > 0,\n    availableSlots: availableSlots.slice(0, 10), // Return first 10 available slots\n    requestedDate: preferredDate,\n    totalSlotsAvailable: availableSlots.length\n  }\n};"
+      },
+      "id": "calculate-available-slots",
+      "name": "Calculate Available Slots",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 200]
+    },
+    {
+      "parameters": {
+        "calendar": "primary",
+        "start": "={{$json.preferredDate}}T{{$json.preferredTime}}:00",
+        "end": "={{new Date(new Date($json.preferredDate + 'T' + $json.preferredTime).getTime() + 30*60000).toISOString()}}",
+        "summary": "Consulta Pediátrica - {{$json.patientName}}",
+        "description": "**Paciente:** {{$json.patientName}} ({{$json.patientAge}} años)\\n**Padre/Madre:** {{$json.parentName}}\\n**Teléfono:** {{$json.parentPhone}}\\n**Email:** {{$json.parentEmail}}\\n**Motivo:** {{$json.reasonForVisit}}",
+        "options": {
+          "sendUpdates": "all"
+        },
+        "attendees": "={{$json.parentEmail}}"
+      },
+      "id": "create-appointment",
+      "name": "Google Calendar - Create Appointment",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [850, 300],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "google-calendar-credentials",
+          "name": "Google Calendar Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "update",
+        "eventId": "={{$json.appointmentId}}",
+        "start": "={{$json.preferredDate}}T{{$json.preferredTime}}:00",
+        "end": "={{new Date(new Date($json.preferredDate + 'T' + $json.preferredTime).getTime() + 30*60000).toISOString()}}",
+        "options": {
+          "sendUpdates": "all"
+        }
+      },
+      "id": "update-appointment",
+      "name": "Google Calendar - Update Appointment",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [850, 400],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "google-calendar-credentials",
+          "name": "Google Calendar Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "delete",
+        "eventId": "={{$json.appointmentId}}",
+        "options": {
+          "sendUpdates": "all"
+        }
+      },
+      "id": "cancel-appointment",
+      "name": "Google Calendar - Cancel Appointment",
+      "type": "n8n-nodes-base.googleCalendar",
+      "typeVersion": 1,
+      "position": [850, 500],
+      "credentials": {
+        "googleCalendarOAuth2Api": {
+          "id": "google-calendar-credentials",
+          "name": "Google Calendar Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "appointments",
+        "columns": {
+          "mappings": [
+            {
+              "column": "appointment_id",
+              "value": "={{$json.id}}"
+            },
+            {
+              "column": "patient_name",
+              "value": "={{$json.patientName}}"
+            },
+            {
+              "column": "patient_age",
+              "value": "={{$json.patientAge}}"
+            },
+            {
+              "column": "parent_name",
+              "value": "={{$json.parentName}}"
+            },
+            {
+              "column": "parent_email",
+              "value": "={{$json.parentEmail}}"
+            },
+            {
+              "column": "parent_phone",
+              "value": "={{$json.parentPhone}}"
+            },
+            {
+              "column": "reason_for_visit",
+              "value": "={{$json.reasonForVisit}}"
+            },
+            {
+              "column": "appointment_date",
+              "value": "={{$json.start.dateTime}}"
+            },
+            {
+              "column": "status",
+              "value": "scheduled"
+            },
+            {
+              "column": "created_at",
+              "value": "={{new Date().toISOString()}}"
+            }
+          ]
+        }
+      },
+      "id": "save-appointment-db",
+      "name": "Save Appointment to Database",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1050, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE appointments SET status = 'cancelled', updated_at = NOW() WHERE appointment_id = '{{$json.appointmentId}}'",
+        "options": {}
+      },
+      "id": "update-appointment-status-db",
+      "name": "Update Appointment Status in DB",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1050, 500],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"success\": true,\n  \"action\": \"availability_check\",\n  \"data\": $json,\n  \"timestamp\": new Date().toISOString()\n} }}"
+      },
+      "id": "response-availability",
+      "name": "Response - Availability",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1250, 200]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"success\": true,\n  \"action\": \"appointment_created\",\n  \"appointmentId\": $json.id,\n  \"appointmentDetails\": {\n    \"patient\": $json.summary,\n    \"dateTime\": $json.start.dateTime,\n    \"location\": \"Kids Growing - Clínica Pediátrica\"\n  },\n  \"timestamp\": new Date().toISOString()\n} }}"
+      },
+      "id": "response-created",
+      "name": "Response - Appointment Created",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"success\": true,\n  \"action\": \"appointment_cancelled\",\n  \"appointmentId\": $input.first().json.appointmentId,\n  \"timestamp\": new Date().toISOString()\n} }}"
+      },
+      "id": "response-cancelled",
+      "name": "Response - Appointment Cancelled",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1250, 500]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "resource": "sms",
+        "operation": "send",
+        "from": "{{$env.TWILIO_PHONE_NUMBER}}",
+        "to": "={{$json.parentPhone}}",
+        "message": "✅ Cita confirmada en Kids Growing\\n\\nPaciente: {{$json.patientName}}\\nFecha: {{$json.start.dateTime}}\\nUbicación: Av. Principal #123\\n\\nRecibirás recordatorios antes de tu cita.\\n\\nPara cambios: +1 (555) 123-4567"
+      },
+      "id": "send-confirmation-sms",
+      "name": "Send Confirmation SMS",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [1050, 350],
+      "credentials": {
+        "twilioApi": {
+          "id": "twilio-credentials",
+          "name": "Twilio Account"
+        }
+      },
+      "continueOnFail": true
+    }
+  ],
+  "connections": {
+    "Webhook - Appointment Request": {
+      "main": [
+        [
+          {
+            "node": "Parse Appointment Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Appointment Request": {
+      "main": [
+        [
+          {
+            "node": "Route Action",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Route Action": {
+      "main": [
+        [
+          {
+            "node": "Google Calendar - Check Availability",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Calendar - Create Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Calendar - Update Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Google Calendar - Cancel Appointment",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar - Check Availability": {
+      "main": [
+        [
+          {
+            "node": "Calculate Available Slots",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Calculate Available Slots": {
+      "main": [
+        [
+          {
+            "node": "Response - Availability",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar - Create Appointment": {
+      "main": [
+        [
+          {
+            "node": "Save Appointment to Database",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Confirmation SMS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Appointment to Database": {
+      "main": [
+        [
+          {
+            "node": "Response - Appointment Created",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Calendar - Cancel Appointment": {
+      "main": [
+        [
+          {
+            "node": "Update Appointment Status in DB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Update Appointment Status in DB": {
+      "main": [
+        [
+          {
+            "node": "Response - Appointment Cancelled",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-11-13T00:00:00.000Z",
+  "versionId": "1"
+}

@@ -1,0 +1,398 @@
+{
+  "name": "Lucía - Appointment Reminders",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "0 */30 * * * *"
+            }
+          ]
+        }
+      },
+      "id": "schedule-trigger",
+      "name": "Schedule - Every 30 Minutes",
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1,
+      "position": [250, 300]
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "SELECT \n  a.appointment_id,\n  a.patient_name,\n  a.parent_name,\n  a.parent_email,\n  a.parent_phone,\n  a.appointment_date,\n  a.reason_for_visit,\n  a.reminder_24h_sent,\n  a.reminder_1h_sent,\n  EXTRACT(EPOCH FROM (a.appointment_date - NOW())) / 3600 as hours_until_appointment\nFROM appointments a\nWHERE \n  a.status = 'scheduled'\n  AND a.appointment_date > NOW()\n  AND (\n    (EXTRACT(EPOCH FROM (a.appointment_date - NOW())) / 3600 BETWEEN 23 AND 25 AND a.reminder_24h_sent = FALSE)\n    OR\n    (EXTRACT(EPOCH FROM (a.appointment_date - NOW())) / 3600 BETWEEN 0.5 AND 1.5 AND a.reminder_1h_sent = FALSE)\n  )\nORDER BY a.appointment_date ASC",
+        "options": {}
+      },
+      "id": "get-upcoming-appointments",
+      "name": "Database - Get Upcoming Appointments",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [450, 300],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "number": [
+            {
+              "value1": "={{$json.length}}",
+              "operation": "larger",
+              "value2": 0
+            }
+          ]
+        }
+      },
+      "id": "check-appointments-exist",
+      "name": "Any Appointments to Remind?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [650, 300]
+    },
+    {
+      "parameters": {},
+      "id": "split-appointments",
+      "name": "Split Appointments",
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [850, 250]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Determine which reminder to send (24h or 1h)\nconst hoursUntil = parseFloat($json.hours_until_appointment);\nconst reminderType = hoursUntil > 2 ? '24h' : '1h';\n\n// Format appointment date/time\nconst appointmentDate = new Date($json.appointment_date);\nconst dateStr = appointmentDate.toLocaleDateString('es-ES', { \n  weekday: 'long', \n  year: 'numeric', \n  month: 'long', \n  day: 'numeric' \n});\nconst timeStr = appointmentDate.toLocaleTimeString('es-ES', { \n  hour: '2-digit', \n  minute: '2-digit' \n});\n\n// Create reminder message based on type\nlet smsMessage = '';\nlet whatsappMessage = '';\n\nif (reminderType === '24h') {\n  smsMessage = `🏥 Kids Growing - Recordatorio de Cita\\n\\n` +\n    `Hola ${$json.parent_name},\\n\\n` +\n    `Te recordamos que mañana tienes una cita programada:\\n\\n` +\n    `👶 Paciente: ${$json.patient_name}\\n` +\n    `📅 Fecha: ${dateStr}\\n` +\n    `🕐 Hora: ${timeStr}\\n` +\n    `📋 Motivo: ${$json.reason_for_visit}\\n\\n` +\n    `📍 Ubicación: Av. Principal #123, Ciudad\\n\\n` +\n    `Para cancelar o reagendar: +1 (555) 123-4567\\n\\n` +\n    `¡Te esperamos!`;\n  \n  whatsappMessage = smsMessage;\n} else {\n  smsMessage = `⏰ Kids Growing - Tu cita es en 1 hora\\n\\n` +\n    `Hola ${$json.parent_name},\\n\\n` +\n    `Tu cita para ${$json.patient_name} es en aproximadamente 1 hora.\\n\\n` +\n    `🕐 Hora: ${timeStr}\\n` +\n    `📍 Av. Principal #123, Ciudad\\n\\n` +\n    `Recuerda llegar 10 minutos antes.\\n\\n` +\n    `¡Nos vemos pronto!`;\n  \n  whatsappMessage = smsMessage;\n}\n\nreturn {\n  json: {\n    appointmentId: $json.appointment_id,\n    patientName: $json.patient_name,\n    parentName: $json.parent_name,\n    parentEmail: $json.parent_email,\n    parentPhone: $json.parent_phone,\n    appointmentDateTime: $json.appointment_date,\n    reminderType: reminderType,\n    smsMessage: smsMessage,\n    whatsappMessage: whatsappMessage,\n    emailSubject: reminderType === '24h' ? \n      '🏥 Recordatorio: Tu cita es mañana en Kids Growing' : \n      '⏰ Tu cita es en 1 hora - Kids Growing',\n    emailBody: reminderType === '24h' ?\n      `<h2>Recordatorio de Cita</h2>\n       <p>Hola ${$json.parent_name},</p>\n       <p>Te recordamos que <strong>mañana</strong> tienes una cita programada en Kids Growing:</p>\n       <ul>\n         <li><strong>Paciente:</strong> ${$json.patient_name}</li>\n         <li><strong>Fecha:</strong> ${dateStr}</li>\n         <li><strong>Hora:</strong> ${timeStr}</li>\n         <li><strong>Motivo:</strong> ${$json.reason_for_visit}</li>\n       </ul>\n       <p><strong>Ubicación:</strong> Av. Principal #123, Ciudad</p>\n       <p>Si necesitas cancelar o reagendar, contáctanos al +1 (555) 123-4567</p>\n       <p>¡Te esperamos!</p>\n       <p>—<br>Equipo Kids Growing</p>` :\n      `<h2>Tu cita es en 1 hora</h2>\n       <p>Hola ${$json.parent_name},</p>\n       <p>Tu cita para <strong>${$json.patient_name}</strong> es en aproximadamente 1 hora.</p>\n       <p><strong>Hora:</strong> ${timeStr}<br>\n       <strong>Ubicación:</strong> Av. Principal #123, Ciudad</p>\n       <p>Recuerda llegar 10 minutos antes.</p>\n       <p>¡Nos vemos pronto!</p>\n       <p>—<br>Equipo Kids Growing</p>`\n  }\n};"
+      },
+      "id": "prepare-reminder-message",
+      "name": "Prepare Reminder Message",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 250]
+    },
+    {
+      "parameters": {
+        "authentication": "serviceAccount",
+        "resource": "sms",
+        "operation": "send",
+        "from": "{{$env.TWILIO_PHONE_NUMBER}}",
+        "to": "={{$json.parentPhone}}",
+        "message": "={{$json.smsMessage}}"
+      },
+      "id": "send-sms-reminder",
+      "name": "Twilio - Send SMS Reminder",
+      "type": "n8n-nodes-base.twilio",
+      "typeVersion": 1,
+      "position": [1250, 150],
+      "credentials": {
+        "twilioApi": {
+          "id": "twilio-credentials",
+          "name": "Twilio Account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "fromEmail": "{{$env.CLINIC_EMAIL}}",
+        "toEmail": "={{$json.parentEmail}}",
+        "subject": "={{$json.emailSubject}}",
+        "emailType": "html",
+        "message": "={{$json.emailBody}}",
+        "options": {}
+      },
+      "id": "send-email-reminder",
+      "name": "Send Email Reminder",
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2,
+      "position": [1250, 250],
+      "credentials": {
+        "smtp": {
+          "id": "smtp-credentials",
+          "name": "SMTP Account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "url": "https://graph.facebook.com/v17.0/{{$env.WHATSAPP_PHONE_NUMBER_ID}}/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "whatsAppApi",
+        "sendBody": true,
+        "bodyParameters": {
+          "parameters": [
+            {
+              "name": "messaging_product",
+              "value": "whatsapp"
+            },
+            {
+              "name": "to",
+              "value": "={{$json.parentPhone}}"
+            },
+            {
+              "name": "type",
+              "value": "text"
+            },
+            {
+              "name": "text",
+              "value": "={{ { \"body\": $json.whatsappMessage } }}"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "id": "send-whatsapp-reminder",
+      "name": "WhatsApp - Send Reminder",
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4,
+      "position": [1250, 350],
+      "credentials": {
+        "whatsAppApi": {
+          "id": "whatsapp-credentials",
+          "name": "WhatsApp Business Account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "operation": "executeQuery",
+        "query": "UPDATE appointments SET \n  reminder_24h_sent = CASE WHEN '{{$json.reminderType}}' = '24h' THEN TRUE ELSE reminder_24h_sent END,\n  reminder_1h_sent = CASE WHEN '{{$json.reminderType}}' = '1h' THEN TRUE ELSE reminder_1h_sent END,\n  updated_at = NOW()\nWHERE appointment_id = '{{$json.appointmentId}}'",
+        "options": {}
+      },
+      "id": "update-reminder-status",
+      "name": "Database - Update Reminder Status",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1450, 250],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "insert",
+        "table": "reminder_log",
+        "columns": {
+          "mappings": [
+            {
+              "column": "appointment_id",
+              "value": "={{$json.appointmentId}}"
+            },
+            {
+              "column": "reminder_type",
+              "value": "={{$json.reminderType}}"
+            },
+            {
+              "column": "sent_via_sms",
+              "value": "TRUE"
+            },
+            {
+              "column": "sent_via_email",
+              "value": "TRUE"
+            },
+            {
+              "column": "sent_via_whatsapp",
+              "value": "TRUE"
+            },
+            {
+              "column": "sent_at",
+              "value": "={{new Date().toISOString()}}"
+            }
+          ]
+        }
+      },
+      "id": "log-reminder-sent",
+      "name": "Database - Log Reminder Sent",
+      "type": "n8n-nodes-base.postgres",
+      "typeVersion": 2,
+      "position": [1650, 250],
+      "credentials": {
+        "postgres": {
+          "id": "postgres-credentials",
+          "name": "PostgreSQL Account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "boolean": [
+            {
+              "value1": "={{$node[\"Split Appointments\"].json.done}}",
+              "value2": false
+            }
+          ]
+        }
+      },
+      "id": "check-more-appointments",
+      "name": "More Appointments?",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [1850, 250]
+    },
+    {
+      "parameters": {},
+      "id": "no-op-end",
+      "name": "End - No Reminders Needed",
+      "type": "n8n-nodes-base.noOp",
+      "typeVersion": 1,
+      "position": [850, 450]
+    }
+  ],
+  "connections": {
+    "Schedule - Every 30 Minutes": {
+      "main": [
+        [
+          {
+            "node": "Database - Get Upcoming Appointments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Database - Get Upcoming Appointments": {
+      "main": [
+        [
+          {
+            "node": "Any Appointments to Remind?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Any Appointments to Remind?": {
+      "main": [
+        [
+          {
+            "node": "Split Appointments",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "End - No Reminders Needed",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Appointments": {
+      "main": [
+        [
+          {
+            "node": "Prepare Reminder Message",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Prepare Reminder Message": {
+      "main": [
+        [
+          {
+            "node": "Twilio - Send SMS Reminder",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "Send Email Reminder",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "WhatsApp - Send Reminder",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Twilio - Send SMS Reminder": {
+      "main": [
+        [
+          {
+            "node": "Database - Update Reminder Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Email Reminder": {
+      "main": [
+        [
+          {
+            "node": "Database - Update Reminder Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "WhatsApp - Send Reminder": {
+      "main": [
+        [
+          {
+            "node": "Database - Update Reminder Status",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Database - Update Reminder Status": {
+      "main": [
+        [
+          {
+            "node": "Database - Log Reminder Sent",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Database - Log Reminder Sent": {
+      "main": [
+        [
+          {
+            "node": "More Appointments?",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "More Appointments?": {
+      "main": [
+        [
+          {
+            "node": "Split Appointments",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-11-13T00:00:00.000Z",
+  "versionId": "1"
+}

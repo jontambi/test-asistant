@@ -1,0 +1,161 @@
+{
+  "name": "Lucía - Pricing Lookup",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lucia-pricing",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-pricing-request",
+      "name": "Webhook - Pricing Request",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "lucia-pricing-webhook"
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract pricing query parameters\nconst serviceName = $json.body.serviceName || '';\nconst serviceCategory = $json.body.serviceCategory || ''; // 'consulta', 'vacuna', 'procedimiento', etc.\nconst searchQuery = $json.body.searchQuery || ''; // Free text search\n\nreturn {\n  json: {\n    serviceName: serviceName.toLowerCase().trim(),\n    serviceCategory: serviceCategory.toLowerCase().trim(),\n    searchQuery: searchQuery.toLowerCase().trim(),\n    sessionId: $json.body.sessionId,\n    userId: $json.body.userId\n  }\n};"
+      },
+      "id": "parse-pricing-request",
+      "name": "Parse Pricing Request",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "operation": "read",
+        "sheetId": "={{$env.GOOGLE_SHEET_PRICING_ID}}",
+        "range": "Tarifas!A:E",
+        "options": {
+          "valueRenderMode": "FORMATTED_VALUE"
+        }
+      },
+      "id": "read-pricing-sheet",
+      "name": "Google Sheets - Read Pricing",
+      "type": "n8n-nodes-base.googleSheets",
+      "typeVersion": 4,
+      "position": [650, 300],
+      "credentials": {
+        "googleSheetsOAuth2Api": {
+          "id": "google-sheets-credentials",
+          "name": "Google Sheets Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "functionCode": "// Parse Google Sheets data and search for matching services\nconst sheetData = $json; // Array of rows from Google Sheets\nconst serviceName = $input.first().json.serviceName;\nconst serviceCategory = $input.first().json.serviceCategory;\nconst searchQuery = $input.first().json.searchQuery;\n\n// Assume sheet structure: Category | Service Name | Description | Price | Notes\n// First row is header, so skip it\nconst services = [];\n\nif (Array.isArray(sheetData) && sheetData.length > 1) {\n  for (let i = 1; i < sheetData.length; i++) {\n    const row = sheetData[i];\n    if (!row || row.length < 4) continue;\n    \n    const service = {\n      category: (row[0] || '').toString().toLowerCase().trim(),\n      name: (row[1] || '').toString().toLowerCase().trim(),\n      description: (row[2] || '').toString().trim(),\n      price: (row[3] || '').toString().trim(),\n      notes: (row[4] || '').toString().trim()\n    };\n    \n    // Search logic\n    let matches = false;\n    \n    // If specific service name is provided\n    if (serviceName && service.name.includes(serviceName)) {\n      matches = true;\n    }\n    \n    // If category is specified\n    if (serviceCategory && service.category.includes(serviceCategory)) {\n      matches = true;\n    }\n    \n    // If free text search\n    if (searchQuery) {\n      if (service.name.includes(searchQuery) || \n          service.description.toLowerCase().includes(searchQuery) ||\n          service.category.includes(searchQuery)) {\n        matches = true;\n      }\n    }\n    \n    // If no filters provided, return all\n    if (!serviceName && !serviceCategory && !searchQuery) {\n      matches = true;\n    }\n    \n    if (matches) {\n      services.push({\n        category: row[0],\n        name: row[1],\n        description: service.description,\n        price: service.price,\n        notes: service.notes\n      });\n    }\n  }\n}\n\nreturn {\n  json: {\n    matchedServices: services,\n    totalMatches: services.length,\n    searchCriteria: {\n      serviceName,\n      serviceCategory,\n      searchQuery\n    }\n  }\n};"
+      },
+      "id": "search-pricing-data",
+      "name": "Search Pricing Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [850, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Format pricing response for user-friendly display\nconst services = $json.matchedServices || [];\n\nif (services.length === 0) {\n  return {\n    json: {\n      success: true,\n      found: false,\n      message: \"No encontré información de precios para ese servicio. ¿Podrías ser más específico o preguntar por otro servicio?\",\n      suggestions: [\n        \"Consulta pediátrica general\",\n        \"Control de niño sano\",\n        \"Vacunas\",\n        \"Consulta de urgencia\"\n      ]\n    }\n  };\n}\n\n// Format single or multiple results\nlet formattedMessage = \"\";\n\nif (services.length === 1) {\n  const service = services[0];\n  formattedMessage = `📋 **${service.name}**\\n\\n`;\n  if (service.description) {\n    formattedMessage += `${service.description}\\n\\n`;\n  }\n  formattedMessage += `💰 **Precio:** ${service.price}`;\n  if (service.notes) {\n    formattedMessage += `\\n\\n📝 *Nota:* ${service.notes}`;\n  }\n} else {\n  formattedMessage = `Encontré ${services.length} servicios relacionados:\\n\\n`;\n  services.forEach((service, index) => {\n    formattedMessage += `${index + 1}. **${service.name}**\\n`;\n    formattedMessage += `   💰 ${service.price}`;\n    if (service.notes) {\n      formattedMessage += ` - ${service.notes}`;\n    }\n    formattedMessage += `\\n\\n`;\n  });\n}\n\nformattedMessage += \"\\n\\n¿Te gustaría agendar una cita o tienes alguna otra pregunta?\";\n\nreturn {\n  json: {\n    success: true,\n    found: true,\n    message: formattedMessage,\n    services: services,\n    totalResults: services.length\n  }\n};"
+      },
+      "id": "format-pricing-response",
+      "name": "Format Pricing Response",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [1050, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ $json }}"
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1250, 300]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"success\": false,\n  \"error\": \"Failed to retrieve pricing information\",\n  \"timestamp\": new Date().toISOString()\n} }}",
+        "options": {
+          "responseCode": 500
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [850, 450]
+    }
+  ],
+  "connections": {
+    "Webhook - Pricing Request": {
+      "main": [
+        [
+          {
+            "node": "Parse Pricing Request",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Parse Pricing Request": {
+      "main": [
+        [
+          {
+            "node": "Google Sheets - Read Pricing",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Google Sheets - Read Pricing": {
+      "main": [
+        [
+          {
+            "node": "Search Pricing Data",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Search Pricing Data": {
+      "main": [
+        [
+          {
+            "node": "Format Pricing Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Format Pricing Response": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1",
+    "errorWorkflow": "error-response"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-11-13T00:00:00.000Z",
+  "versionId": "1"
+}
