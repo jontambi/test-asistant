@@ -4,16 +4,16 @@
 
 ## Overview
 
-This project provides a complete, production-ready N8N workflow system for managing a pediatric clinic's patient interactions, appointments, and information delivery through multiple channels (web chat, WhatsApp, SMS, and voice).
+This project provides a complete, production-ready N8N workflow system for managing a pediatric clinic's patient interactions, appointments, and information delivery through multiple channels (web chat, Telegram, and voice).
 
 ### Key Features
 
-- **Multi-Channel Support**: Web chat widget, WhatsApp, SMS, and voice calls
+- **Multi-Channel Support**: Web chat widget, Telegram, and voice calls
 - **Intelligent Conversation**: Powered by Claude Haiku for fast, cost-effective responses
 - **Appointment Management**: Full integration with Google Calendar
 - **Dynamic Pricing**: Real-time pricing lookups from Google Sheets
 - **Patient Data Management**: Secure storage with GDPR/HIPAA compliance features
-- **Automated Reminders**: 24-hour and 1-hour appointment reminders via SMS, email, and WhatsApp
+- **Automated Reminders**: 24-hour and 1-hour appointment reminders via email and Telegram
 - **Emergency Detection**: Automatic identification of urgent medical situations
 - **Conversation Memory**: Context-aware conversations using Redis
 - **Bilingual Ready**: Spanish by default, easily adaptable to other languages
@@ -22,7 +22,7 @@ This project provides a complete, production-ready N8N workflow system for manag
 
 ```
 ┌─────────────────┐
-│   User Input    │ (Web, WhatsApp, SMS, Voice)
+│   User Input    │ (Web, Telegram, Voice)
 └────────┬────────┘
          │
          v
@@ -90,8 +90,7 @@ test-asistant/
 - Redis server (for session management)
 - Anthropic API key (Claude AI)
 - Google Cloud account (for Calendar and Sheets APIs)
-- Twilio account (for SMS)
-- WhatsApp Business API access (optional)
+- Telegram Bot (via @BotFather)
 - SMTP server (for email)
 
 ### Installation Steps
@@ -129,9 +128,7 @@ test-asistant/
    - Google Sheets OAuth2
    - PostgreSQL
    - Redis
-   - Twilio
    - SMTP
-   - WhatsApp Business API (optional)
 
 7. **Activate workflows**
    - Enable all imported workflows in N8N
@@ -175,7 +172,6 @@ test-asistant/
 - Create appointments
 - Update appointments
 - Cancel appointments
-- Send confirmation SMS
 
 **Webhook**: `/lucia-appointments`
 
@@ -215,7 +211,7 @@ test-asistant/
 - Runs every 30 minutes
 - 24-hour reminders
 - 1-hour reminders
-- Multi-channel delivery (SMS, Email, WhatsApp)
+- Multi-channel delivery (Email, Telegram)
 - Delivery tracking
 
 **Trigger**: Scheduled (cron: `0 */30 * * * *`)
@@ -231,7 +227,7 @@ All configuration is managed through environment variables. See `config/.env.exa
 - `GOOGLE_SHEET_PRICING_ID`: Your pricing Google Sheet ID
 - `POSTGRES_*`: Database connection details
 - `REDIS_*`: Redis connection details
-- `TWILIO_*`: SMS service credentials
+- `TELEGRAM_BOT_TOKEN`: Telegram bot credentials
 
 ### Customization
 
@@ -365,7 +361,7 @@ Monitor these endpoints regularly:
 - Database connectivity
 - Redis availability
 - Google APIs status
-- Twilio service status
+- Telegram Bot API status
 - N8N workflow execution logs
 
 ### Logs
@@ -382,7 +378,7 @@ Monitor:
 - Webhook response times
 - Database query performance
 - Redis memory usage
-- API rate limits (Anthropic, Google, Twilio)
+- API rate limits (Anthropic, Google, Telegram)
 
 ## Troubleshooting
 
@@ -400,7 +396,7 @@ Monitor:
 
 **Issue**: Reminders not sending
 - **Solution**: Check cron schedule is active
-- Verify Twilio/SMTP credentials
+- Verify Telegram Bot Token and SMTP credentials
 - Check database connection
 - Review `reminder_log` table for errors
 
@@ -434,11 +430,11 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - **Anthropic** for Claude AI
 - **N8N** for workflow automation
 - **Google** for Calendar and Sheets APIs
-- **Twilio** for SMS services
+- **Telegram** for Bot API
 
 ## Roadmap
 
-- [ ] Voice call integration (Twilio Voice)
+- [ ] Voice call integration
 - [ ] Multi-language support (English, Portuguese)
 - [ ] Payment processing integration
 - [ ] Advanced analytics dashboard

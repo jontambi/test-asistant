@@ -280,28 +280,6 @@
       "typeVersion": 1,
       "position": [1250, 500]
     },
-    {
-      "parameters": {
-        "authentication": "serviceAccount",
-        "resource": "sms",
-        "operation": "send",
-        "from": "{{$env.TWILIO_PHONE_NUMBER}}",
-        "to": "={{$json.parentPhone}}",
-        "message": "✅ Cita confirmada en Kids Growing\\n\\nPaciente: {{$json.patientName}}\\nFecha: {{$json.start.dateTime}}\\nUbicación: Av. Principal #123\\n\\nRecibirás recordatorios antes de tu cita.\\n\\nPara cambios: +1 (555) 123-4567"
-      },
-      "id": "send-confirmation-sms",
-      "name": "Send Confirmation SMS",
-      "type": "n8n-nodes-base.twilio",
-      "typeVersion": 1,
-      "position": [1050, 350],
-      "credentials": {
-        "twilioApi": {
-          "id": "twilio-credentials",
-          "name": "Twilio Account"
-        }
-      },
-      "continueOnFail": true
-    }
   ],
   "connections": {
     "Webhook - Appointment Request": {
@@ -385,11 +363,6 @@
         [
           {
             "node": "Save Appointment to Database",
-            "type": "main",
-            "index": 0
-          },
-          {
-            "node": "Send Confirmation SMS",
             "type": "main",
             "index": 0
           }

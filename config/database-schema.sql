@@ -82,9 +82,8 @@ CREATE TABLE IF NOT EXISTS reminder_log (
     reminder_id SERIAL PRIMARY KEY,
     appointment_id VARCHAR(255) REFERENCES appointments(appointment_id),
     reminder_type VARCHAR(10) NOT NULL, -- 24h, 1h
-    sent_via_sms BOOLEAN DEFAULT FALSE,
     sent_via_email BOOLEAN DEFAULT FALSE,
-    sent_via_whatsapp BOOLEAN DEFAULT FALSE,
+    sent_via_telegram BOOLEAN DEFAULT FALSE,
     sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     delivery_status VARCHAR(50), -- sent, delivered, failed
     error_message TEXT
@@ -100,7 +99,7 @@ CREATE INDEX idx_reminder_log_sent_at ON reminder_log(sent_at);
 CREATE TABLE IF NOT EXISTS conversation_sessions (
     session_id VARCHAR(255) PRIMARY KEY,
     user_id VARCHAR(255),
-    channel VARCHAR(50), -- web, whatsapp, sms, voice
+    channel VARCHAR(50), -- web, telegram, voice
     conversation_history JSONB DEFAULT '[]',
     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
     updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
