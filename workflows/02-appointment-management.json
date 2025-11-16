@@ -279,7 +279,7 @@
       "type": "n8n-nodes-base.respondToWebhook",
       "typeVersion": 1,
       "position": [1250, 500]
-    },
+    }
   ],
   "connections": {
     "Webhook - Appointment Request": {
