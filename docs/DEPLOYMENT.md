@@ -81,7 +81,7 @@ required_vars=(
   "POSTGRES_HOST"
   "REDIS_HOST"
   "GOOGLE_SHEET_PRICING_ID"
-  "TWILIO_ACCOUNT_SID"
+  "TELEGRAM_BOT_TOKEN"
 )
 
 for var in "${required_vars[@]}"; do
@@ -202,9 +202,8 @@ services:
       # Pass through all environment variables
       - ANTHROPIC_API_KEY=${ANTHROPIC_API_KEY}
       - GOOGLE_SHEET_PRICING_ID=${GOOGLE_SHEET_PRICING_ID}
-      - TWILIO_ACCOUNT_SID=${TWILIO_ACCOUNT_SID}
-      - TWILIO_AUTH_TOKEN=${TWILIO_AUTH_TOKEN}
-      - TWILIO_PHONE_NUMBER=${TWILIO_PHONE_NUMBER}
+      - TELEGRAM_BOT_TOKEN=${TELEGRAM_BOT_TOKEN}
+      - TELEGRAM_CHAT_ID=${TELEGRAM_CHAT_ID}
       - CLINIC_EMAIL=${CLINIC_EMAIL}
     volumes:
       - n8n_data:/home/node/.n8n
@@ -794,16 +793,16 @@ WHERE datname = 'kids_growing_clinic' AND state = 'idle';
 | Managed Postgres | DigitalOcean | $15 |
 | Managed Redis | DigitalOcean | $15 |
 | Claude API | Anthropic | $10-50 |
-| Twilio SMS | Twilio | $10-30 |
+| Telegram Bot | Telegram | $0 (free) |
 | Domain + SSL | Cloudflare | $0 (free) |
-| **Total** | | **$74-134/month** |
+| **Total** | | **$64-104/month** |
 
 ### Optimization Tips
 
 1. Use Claude Haiku (cheapest model)
 2. Cache frequent queries in Redis
 3. Optimize Google Sheets reads
-4. Use SMS only for critical reminders
+4. Use Telegram for all notifications (free)
 5. Implement webhook request caching
 
 ---
