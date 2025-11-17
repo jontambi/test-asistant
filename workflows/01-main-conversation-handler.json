@@ -34,7 +34,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Extract conversation data from webhook\nconst sessionId = $input.item.json.body.sessionId || `session-${Date.now()}`;\nconst userMessage = $input.item.json.body.message;\nconst userId = $input.item.json.body.userId || 'anonymous';\nconst channel = $input.item.json.body.channel || 'web'; // web, whatsapp, sms, voice\n\n// Create structured input for memory retrieval\nreturn {\n  json: {\n    sessionId: sessionId,\n    userId: userId,\n    userMessage: userMessage,\n    channel: channel,\n    timestamp: new Date().toISOString()\n  }\n};"
+        "functionCode": "// Extract conversation data from webhook\n// Access webhook data - it's nested under 'body' property\nconst inputData = $input.item.json;\nconst body = inputData.body || inputData;\n\n// Extract fields with fallbacks\nconst sessionId = body.sessionId || `session-${Date.now()}`;\nconst userMessage = body.message;\nconst userId = body.userId || 'anonymous';\nconst channel = body.channel || 'web'; // web, whatsapp, sms, voice\n\n// Validate required fields\nif (!userMessage) {\n  throw new Error('Message is required');\n}\n\n// Create structured output for next nodes\nreturn {\n  json: {\n    sessionId: sessionId,\n    userId: userId,\n    userMessage: userMessage,\n    channel: channel,\n    timestamp: new Date().toISOString()\n  }\n};"
       },
       "id": "extract-conversation-data",
       "name": "Extract Conversation Data",
