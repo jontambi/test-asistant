@@ -1,0 +1,429 @@
+{
+  "name": "Lucía - AI Agent (Simplified)",
+  "nodes": [
+    {
+      "parameters": {
+        "httpMethod": "POST",
+        "path": "lucia-chat",
+        "responseMode": "responseNode",
+        "options": {}
+      },
+      "id": "webhook-receive",
+      "name": "Webhook - Receive Message",
+      "type": "n8n-nodes-base.webhook",
+      "typeVersion": 1,
+      "position": [250, 300],
+      "webhookId": "lucia-chat-webhook"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "string": [
+            {
+              "value1": "={{$json.body.message}}",
+              "operation": "isNotEmpty"
+            }
+          ]
+        }
+      },
+      "id": "validate-input",
+      "name": "Validate Input",
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 1,
+      "position": [450, 300]
+    },
+    {
+      "parameters": {
+        "functionCode": "// Extract conversation data from webhook\nconst inputData = $input.item.json;\nconst body = inputData.body || inputData;\n\nconst sessionId = body.sessionId || `session-${Date.now()}`;\nconst userMessage = body.message;\nconst userId = body.userId || 'anonymous';\nconst channel = body.channel || 'web';\n\nif (!userMessage) {\n  throw new Error('Message is required');\n}\n\nreturn {\n  json: {\n    sessionId: sessionId,\n    userId: userId,\n    userMessage: userMessage,\n    channel: channel,\n    timestamp: new Date().toISOString(),\n    chatInput: userMessage\n  }\n};"
+      },
+      "id": "extract-conversation-data",
+      "name": "Extract Conversation Data",
+      "type": "n8n-nodes-base.code",
+      "typeVersion": 2,
+      "position": [650, 250]
+    },
+    {
+      "parameters": {
+        "operation": "get",
+        "key": "={{$json.sessionId}}_memory",
+        "options": {}
+      },
+      "id": "get-conversation-memory",
+      "name": "Get Conversation Memory",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [850, 250],
+      "credentials": {
+        "redis": {
+          "id": "redis-credentials",
+          "name": "Redis Account"
+        }
+      },
+      "continueOnFail": true
+    },
+    {
+      "parameters": {
+        "sessionIdType": "customKey",
+        "sessionKey": "={{$('Extract Conversation Data').item.json.sessionId}}"
+      },
+      "id": "buffer-memory",
+      "name": "Conversation Memory Buffer",
+      "type": "@n8n/n8n-nodes-langchain.memoryBufferWindow",
+      "typeVersion": 1.2,
+      "position": [1050, 150]
+    },
+    {
+      "parameters": {
+        "modelId": "claude-3-haiku-20240307",
+        "options": {
+          "temperature": 0.7,
+          "maxTokens": 2048
+        }
+      },
+      "id": "anthropic-chat-model",
+      "name": "Anthropic Chat Model",
+      "type": "@n8n/n8n-nodes-langchain.lmChatAnthropic",
+      "typeVersion": 1.1,
+      "position": [1050, 250],
+      "credentials": {
+        "anthropicApi": {
+          "id": "anthropic-credentials",
+          "name": "Anthropic API"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "name": "check_appointment_availability",
+        "description": "Check available appointment time slots for a specific date. Use this when a parent wants to know what times are available for scheduling.",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "preferredDate": {
+              "type": "string",
+              "description": "The date to check availability for, in YYYY-MM-DD format (e.g., 2025-11-20)"
+            }
+          },
+          "required": ["preferredDate"]
+        },
+        "functionCode": "// Check calendar availability for the requested date\nconst preferredDate = $input.item.json.preferredDate;\n\nif (!preferredDate) {\n  return { error: 'Preferred date is required' };\n}\n\n// Validate date format\nconst dateRegex = /^\\d{4}-\\d{2}-\\d{2}$/;\nif (!dateRegex.test(preferredDate)) {\n  return { error: 'Invalid date format. Please use YYYY-MM-DD' };\n}\n\n// Check day of week\nconst date = new Date(preferredDate);\nconst dayOfWeek = date.getDay();\n\nif (dayOfWeek === 0) {\n  return {\n    available: false,\n    reason: 'La clínica está cerrada los domingos',\n    availableSlots: [],\n    nextAvailableDate: null\n  };\n}\n\n// Define working hours\nlet startHour = 8;\nlet endHour = 18;\nif (dayOfWeek === 6) {\n  startHour = 9;\n  endHour = 14;\n}\n\n// Generate available time slots (30-minute intervals)\nconst allSlots = [];\nfor (let hour = startHour; hour < endHour; hour++) {\n  for (let minute of [0, 30]) {\n    const timeSlot = `${String(hour).padStart(2, '0')}:${String(minute).padStart(2, '0')}`;\n    allSlots.push(timeSlot);\n  }\n}\n\n// For demo purposes, simulate some occupied slots\nconst occupiedSlots = ['09:00', '09:30', '14:00', '15:30'];\nconst availableSlots = allSlots.filter(slot => !occupiedSlots.includes(slot));\n\nreturn {\n  available: availableSlots.length > 0,\n  availableSlots: availableSlots.slice(0, 10),\n  requestedDate: preferredDate,\n  totalSlotsAvailable: availableSlots.length,\n  clinicHours: `${startHour}:00 - ${endHour}:00`\n};"
+      },
+      "id": "tool-check-availability",
+      "name": "Tool: Check Availability",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1,
+      "position": [850, 350]
+    },
+    {
+      "parameters": {
+        "name": "create_appointment",
+        "description": "Create a new pediatric appointment. Use this after collecting all required information: patient name, age, parent contact details, preferred date and time, and reason for visit.",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "patientName": {
+              "type": "string",
+              "description": "Full name of the child patient"
+            },
+            "patientAge": {
+              "type": "string",
+              "description": "Age of the child (e.g., '5 años', '18 meses')"
+            },
+            "parentName": {
+              "type": "string",
+              "description": "Full name of the parent or guardian"
+            },
+            "parentEmail": {
+              "type": "string",
+              "description": "Email address of the parent"
+            },
+            "parentPhone": {
+              "type": "string",
+              "description": "Phone number of the parent"
+            },
+            "preferredDate": {
+              "type": "string",
+              "description": "Appointment date in YYYY-MM-DD format"
+            },
+            "preferredTime": {
+              "type": "string",
+              "description": "Appointment time in HH:MM format (e.g., '09:30')"
+            },
+            "reasonForVisit": {
+              "type": "string",
+              "description": "Reason for the appointment or consultation"
+            }
+          },
+          "required": ["patientName", "patientAge", "parentName", "parentEmail", "parentPhone", "preferredDate", "preferredTime", "reasonForVisit"]
+        },
+        "functionCode": "// Create appointment with Google Calendar\nconst input = $input.item.json;\n\n// Validate required fields\nconst requiredFields = ['patientName', 'patientAge', 'parentName', 'parentEmail', 'parentPhone', 'preferredDate', 'preferredTime', 'reasonForVisit'];\nfor (const field of requiredFields) {\n  if (!input[field]) {\n    return { error: `Missing required field: ${field}` };\n  }\n}\n\n// Create appointment ID\nconst appointmentId = `APT-${Date.now()}`;\n\n// Calculate end time (30 minutes after start)\nconst startDateTime = new Date(`${input.preferredDate}T${input.preferredTime}:00`);\nconst endDateTime = new Date(startDateTime.getTime() + 30 * 60000);\n\n// Format the appointment details\nconst appointmentDetails = {\n  appointmentId: appointmentId,\n  patient: {\n    name: input.patientName,\n    age: input.patientAge\n  },\n  parent: {\n    name: input.parentName,\n    email: input.parentEmail,\n    phone: input.parentPhone\n  },\n  dateTime: startDateTime.toISOString(),\n  endDateTime: endDateTime.toISOString(),\n  reason: input.reasonForVisit,\n  status: 'scheduled',\n  location: 'Kids Growing - Clínica Pediátrica',\n  address: 'Av. Principal #123, Ciudad'\n};\n\n// Return confirmation\nreturn {\n  success: true,\n  message: `Cita agendada exitosamente para ${input.patientName}`,\n  appointmentId: appointmentId,\n  details: appointmentDetails,\n  confirmationMessage: `✅ **Cita Confirmada**\\n\\n**Paciente:** ${input.patientName} (${input.patientAge})\\n**Fecha:** ${input.preferredDate}\\n**Hora:** ${input.preferredTime}\\n**Motivo:** ${input.reasonForVisit}\\n\\n**Datos de contacto:**\\n${input.parentName}\\n${input.parentEmail}\\n${input.parentPhone}\\n\\nRecibirás un correo de confirmación en ${input.parentEmail}.\\n\\n📍 **Ubicación:** Kids Growing - Clínica Pediátrica, Av. Principal #123, Ciudad`\n};"
+      },
+      "id": "tool-create-appointment",
+      "name": "Tool: Create Appointment",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1,
+      "position": [850, 450]
+    },
+    {
+      "parameters": {
+        "name": "get_service_pricing",
+        "description": "Look up pricing information for clinic services. Use this when parents ask about costs, prices, or how much a service costs. You can search by service name or category.",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "searchQuery": {
+              "type": "string",
+              "description": "The service name or keyword to search for (e.g., 'consulta general', 'vacuna', 'control niño sano')"
+            }
+          },
+          "required": ["searchQuery"]
+        },
+        "functionCode": "// Look up pricing information\nconst searchQuery = ($input.item.json.searchQuery || '').toLowerCase();\n\n// Simulated pricing database (in production, this would query Google Sheets or database)\nconst pricingData = [\n  {\n    category: 'Consultas',\n    name: 'Consulta Pediátrica General',\n    description: 'Consulta médica general con pediatra certificado',\n    price: '$500 MXN',\n    duration: '30 minutos'\n  },\n  {\n    category: 'Consultas',\n    name: 'Control de Niño Sano',\n    description: 'Revisión preventiva, medición y evaluación del desarrollo',\n    price: '$450 MXN',\n    duration: '30 minutos'\n  },\n  {\n    category: 'Consultas',\n    name: 'Consulta de Urgencia',\n    description: 'Atención prioritaria para casos urgentes',\n    price: '$800 MXN',\n    duration: '30 minutos'\n  },\n  {\n    category: 'Vacunas',\n    name: 'Vacuna Influenza',\n    description: 'Vacuna contra la gripe estacional',\n    price: '$350 MXN',\n    notes: 'Aplicación incluida'\n  },\n  {\n    category: 'Vacunas',\n    name: 'Vacuna Hepatitis B',\n    description: 'Vacuna contra Hepatitis B',\n    price: '$400 MXN',\n    notes: 'Esquema de 3 dosis'\n  },\n  {\n    category: 'Procedimientos',\n    name: 'Nebulización',\n    description: 'Tratamiento respiratorio con nebulizador',\n    price: '$200 MXN',\n    duration: '15-20 minutos'\n  },\n  {\n    category: 'Procedimientos',\n    name: 'Curación',\n    description: 'Curación de heridas menores',\n    price: '$150 MXN',\n    duration: '15 minutos'\n  }\n];\n\n// Search for matching services\nconst matchedServices = pricingData.filter(service => {\n  const searchLower = searchQuery.toLowerCase();\n  return service.name.toLowerCase().includes(searchLower) ||\n         service.category.toLowerCase().includes(searchLower) ||\n         service.description.toLowerCase().includes(searchLower);\n});\n\nif (matchedServices.length === 0) {\n  return {\n    found: false,\n    message: 'No encontré información sobre ese servicio. Servicios disponibles: Consulta Pediátrica General, Control de Niño Sano, Consulta de Urgencia, Vacunas, Nebulización, Curación.',\n    availableCategories: ['Consultas', 'Vacunas', 'Procedimientos']\n  };\n}\n\n// Format results\nlet formattedMessage = '';\nif (matchedServices.length === 1) {\n  const s = matchedServices[0];\n  formattedMessage = `📋 **${s.name}**\\n\\n${s.description}\\n\\n💰 **Precio:** ${s.price}`;\n  if (s.duration) formattedMessage += `\\n⏱️ **Duración:** ${s.duration}`;\n  if (s.notes) formattedMessage += `\\n\\n📝 *Nota:* ${s.notes}`;\n} else {\n  formattedMessage = `Encontré ${matchedServices.length} servicios:\\n\\n`;\n  matchedServices.forEach((s, i) => {\n    formattedMessage += `${i+1}. **${s.name}** - ${s.price}\\n   ${s.description}\\n\\n`;\n  });\n}\n\nreturn {\n  found: true,\n  message: formattedMessage,\n  services: matchedServices,\n  totalResults: matchedServices.length\n};"
+      },
+      "id": "tool-get-pricing",
+      "name": "Tool: Get Pricing",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1,
+      "position": [850, 550]
+    },
+    {
+      "parameters": {
+        "name": "cancel_appointment",
+        "description": "Cancel an existing appointment. Use this when a parent wants to cancel a previously scheduled appointment. Requires the appointment ID.",
+        "schema": {
+          "type": "object",
+          "properties": {
+            "appointmentId": {
+              "type": "string",
+              "description": "The ID of the appointment to cancel (e.g., 'APT-1234567890')"
+            },
+            "reason": {
+              "type": "string",
+              "description": "Optional reason for cancellation"
+            }
+          },
+          "required": ["appointmentId"]
+        },
+        "functionCode": "// Cancel appointment\nconst appointmentId = $input.item.json.appointmentId;\nconst reason = $input.item.json.reason || 'No especificado';\n\nif (!appointmentId) {\n  return { error: 'Appointment ID is required' };\n}\n\n// In production, this would update Google Calendar and database\n// For now, return a confirmation\nreturn {\n  success: true,\n  message: `La cita ${appointmentId} ha sido cancelada exitosamente`,\n  appointmentId: appointmentId,\n  cancellationReason: reason,\n  refundInfo: 'Si realizaste un pago adelantado, el reembolso se procesará en 5-7 días hábiles',\n  confirmationMessage: `✅ **Cita Cancelada**\\n\\n**ID de Cita:** ${appointmentId}\\n**Motivo:** ${reason}\\n\\nLa cancelación ha sido procesada. Recibirás un correo de confirmación.\\n\\nSi deseas reagendar, con gusto puedo ayudarte a encontrar un nuevo horario.`\n};"
+      },
+      "id": "tool-cancel-appointment",
+      "name": "Tool: Cancel Appointment",
+      "type": "@n8n/n8n-nodes-langchain.toolCode",
+      "typeVersion": 1,
+      "position": [850, 650]
+    },
+    {
+      "parameters": {
+        "text": "={{$json.chatInput}}",
+        "options": {
+          "systemMessage": "Rol y Personalidad:\nEres Lucía, asistente virtual de \"Kids Growing\" - Clínica Pediátrica. Ayudas a padres y cuidadores con consultas sobre servicios pediátricos, agendar citas y proporcionar información de la clínica.\n\nTono y Estilo:\n- Amable, empático y profesional\n- Lenguaje claro y sencillo\n- Paciente con padres preocupados\n- Cálido pero profesional\n- Responde siempre en español\n\nCapacidades con Herramientas:\nTienes acceso a las siguientes herramientas que debes usar cuando sea apropiado:\n\n1. **check_appointment_availability**: Verifica horarios disponibles para una fecha específica\n2. **create_appointment**: Agenda una nueva cita (recopila TODA la información primero)\n3. **get_service_pricing**: Consulta precios de servicios\n4. **cancel_appointment**: Cancela una cita existente\n\nFlujó para Agendar Citas:\n1. Saluda cordialmente\n2. Pregunta por el motivo de la consulta\n3. Usa check_appointment_availability para mostrar horarios\n4. Recopila: Nombre del niño/a, edad, nombre del padre/madre, teléfono, email\n5. Confirma TODOS los datos antes de usar create_appointment\n6. Nunca crees una cita sin tener todos los datos requeridos\n\nLimitaciones - IMPORTANTE:\n- NUNCA des diagnósticos médicos\n- NUNCA recomiendes medicamentos\n- Para emergencias médicas: deriva inmediatamente a urgencias o llama al 911\n- Para preguntas médicas específicas: indica que un doctor debe evaluar\n- Para quejas: deriva a atención al cliente\n\nInformación de la Clínica:\n- Nombre: Kids Growing - Clínica Pediátrica\n- Horario: Lunes-Viernes 8:00 AM - 6:00 PM, Sábados 9:00 AM - 2:00 PM, Domingos cerrado\n- Ubicación: Av. Principal #123, Ciudad\n- Teléfono: +1 (555) 123-4567\n- Email: contacto@kidsgrowing.com\n\nDetección de Emergencias:\nSi detectas palabras como: emergencia, urgente, no respira, convulsión, accidente, sangrado, inconsciente, desmayo, asfixia, responde inmediatamente:\n\n\"🚨 **EMERGENCIA MÉDICA DETECTADA** 🚨\n\nEsta situación requiere atención médica inmediata.\n\n**Por favor:**\n1. Llama al 911 inmediatamente\n2. O acude a la sala de emergencias más cercana\n\n**Nuestra dirección de urgencias:**\nKids Growing Clinic\nAv. Principal #123, Ciudad\"\n\nRecuerda: Usa las herramientas disponibles para proporcionar información precisa y actualizada. Siempre confirma los datos antes de crear citas."
+        }
+      },
+      "id": "ai-agent",
+      "name": "AI Agent - Lucía",
+      "type": "@n8n/n8n-nodes-langchain.agent",
+      "typeVersion": 1.6,
+      "position": [1250, 350]
+    },
+    {
+      "parameters": {
+        "operation": "set",
+        "key": "={{$('Extract Conversation Data').item.json.sessionId}}_memory",
+        "value": "={{JSON.stringify({ lastInteraction: new Date().toISOString(), userId: $('Extract Conversation Data').item.json.userId })}}",
+        "options": {
+          "ttl": 3600
+        }
+      },
+      "id": "save-conversation-memory",
+      "name": "Save Conversation Memory",
+      "type": "n8n-nodes-base.redis",
+      "typeVersion": 1,
+      "position": [1450, 350],
+      "credentials": {
+        "redis": {
+          "id": "redis-credentials",
+          "name": "Redis Account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"success\": true,\n  \"sessionId\": $('Extract Conversation Data').item.json.sessionId,\n  \"response\": $json.output || $json.text || $json.response,\n  \"timestamp\": new Date().toISOString()\n} }}"
+      },
+      "id": "webhook-response",
+      "name": "Webhook Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [1650, 350]
+    },
+    {
+      "parameters": {
+        "respondWith": "json",
+        "responseBody": "={{ {\n  \"success\": false,\n  \"error\": \"Invalid input: message is required\",\n  \"timestamp\": new Date().toISOString()\n} }}",
+        "options": {
+          "responseCode": 400
+        }
+      },
+      "id": "error-response",
+      "name": "Error Response",
+      "type": "n8n-nodes-base.respondToWebhook",
+      "typeVersion": 1,
+      "position": [650, 450]
+    }
+  ],
+  "connections": {
+    "Webhook - Receive Message": {
+      "main": [
+        [
+          {
+            "node": "Validate Input",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Validate Input": {
+      "main": [
+        [
+          {
+            "node": "Extract Conversation Data",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Error Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Conversation Data": {
+      "main": [
+        [
+          {
+            "node": "Get Conversation Memory",
+            "type": "main",
+            "index": 0
+          },
+          {
+            "node": "AI Agent - Lucía",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get Conversation Memory": {
+      "main": [
+        [
+          {
+            "node": "Conversation Memory Buffer",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "AI Agent - Lucía": {
+      "main": [
+        [
+          {
+            "node": "Save Conversation Memory",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Conversation Memory Buffer": {
+      "ai_memory": [
+        [
+          {
+            "node": "AI Agent - Lucía",
+            "type": "ai_memory",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Anthropic Chat Model": {
+      "ai_languageModel": [
+        [
+          {
+            "node": "AI Agent - Lucía",
+            "type": "ai_languageModel",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Check Availability": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Lucía",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Create Appointment": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Lucía",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Get Pricing": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Lucía",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Tool: Cancel Appointment": {
+      "ai_tool": [
+        [
+          {
+            "node": "AI Agent - Lucía",
+            "type": "ai_tool",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Save Conversation Memory": {
+      "main": [
+        [
+          {
+            "node": "Webhook Response",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "settings": {
+    "executionOrder": "v1"
+  },
+  "staticData": null,
+  "tags": [],
+  "triggerCount": 1,
+  "updatedAt": "2025-11-17T00:00:00.000Z",
+  "versionId": "2"
+}
