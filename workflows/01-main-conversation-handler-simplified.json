@@ -64,7 +64,7 @@
     {
       "parameters": {
         "sessionIdType": "customKey",
-        "sessionKey": "={{$('Extract Conversation Data').item.json.sessionId}}"
+        "sessionKey": "={{$json.sessionId}}"
       },
       "id": "buffer-memory",
       "name": "Conversation Memory Buffer",
