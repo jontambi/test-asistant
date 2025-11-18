@@ -20,7 +20,7 @@
         "conditions": {
           "string": [
             {
-              "value1": "={{$json.body.message}}",
+              "value1": "={{$json.body.chatInput || $json.body.message}}",
               "operation": "isNotEmpty"
             }
           ]
@@ -34,7 +34,7 @@
     },
     {
       "parameters": {
-        "functionCode": "// Extract conversation data from webhook\nconst inputData = $input.item.json;\nconst body = inputData.body || inputData;\n\nconst sessionId = body.sessionId || `session-${Date.now()}`;\nconst userMessage = body.message;\nconst userId = body.userId || 'anonymous';\nconst channel = body.channel || 'web';\n\nif (!userMessage) {\n  throw new Error('Message is required');\n}\n\nreturn {\n  json: {\n    sessionId: sessionId,\n    userId: userId,\n    userMessage: userMessage,\n    channel: channel,\n    timestamp: new Date().toISOString(),\n    chatInput: userMessage\n  }\n};"
+        "functionCode": "// Extract conversation data from webhook\nconst inputData = $input.item.json;\nconst body = inputData.body || inputData;\n\nconst sessionId = body.sessionId || `session-${Date.now()}`;\nconst userMessage = body.chatInput || body.message;\nconst userId = body.userId || 'anonymous';\nconst channel = body.channel || 'web';\n\nif (!userMessage) {\n  throw new Error('Message is required');\n}\n\nreturn {\n  json: {\n    sessionId: sessionId,\n    userId: userId,\n    userMessage: userMessage,\n    channel: channel,\n    timestamp: new Date().toISOString(),\n    chatInput: userMessage\n  }\n};"
       },
       "id": "extract-conversation-data",
       "name": "Extract Conversation Data",
@@ -259,7 +259,7 @@
     {
       "parameters": {
         "respondWith": "json",
-        "responseBody": "={{ {\n  \"success\": false,\n  \"error\": \"Invalid input: message is required\",\n  \"timestamp\": new Date().toISOString()\n} }}",
+        "responseBody": "={{ {\n  \"success\": false,\n  \"error\": \"Invalid input: chatInput or message is required\",\n  \"timestamp\": new Date().toISOString()\n} }}",
         "options": {
           "responseCode": 400
         }
